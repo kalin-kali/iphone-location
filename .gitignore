@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+loc.pid
+loc.state
+loc.log
+tunneld.log
+.densified_route.gpx
+locations.json
