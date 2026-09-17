@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -515,6 +516,322 @@ def cmd_route(args):
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# doctor: диагностика за "задръстване" - заседнали процеси, остатъчни файлове,
+# грешки в логовете и състояние на свързания телефон.
+# ---------------------------------------------------------------------------
+
+VENV_PYTHON = os.path.join(BASE_DIR, "venv", "bin", "python3")
+LOG_TAIL_LINES = 200  # колко реда от края на логовете да се сканират за грешки
+LOG_BIG_BYTES = 50 * 1024 * 1024  # над този размер логът сам по себе си е "задръстване"
+LOG_ERROR_RE = re.compile(r"error|exception|traceback|refused|timed? ?out|failed", re.IGNORECASE)
+
+# Изпълнява се в отделен процес (с таймаут), за да не увисне doctor, ако
+# телефонът не отговаря или чака "Trust This Computer".
+_DEVICE_PROBE_SCRIPT = r"""
+import asyncio, inspect, json
+out = {"devices": [], "error": None}
+
+
+async def maybe(x):
+    # pymobiledevice3 < 5 е синхронен, по-новите версии са async - работи и с двете
+    return await x if inspect.isawaitable(x) else x
+
+
+async def probe():
+    from pymobiledevice3.usbmux import list_devices
+    from pymobiledevice3.lockdown import create_using_usbmux
+    seen = set()
+    for dev in await maybe(list_devices()):
+        if dev.serial in seen:
+            continue
+        seen.add(dev.serial)
+        info = {"udid": dev.serial, "connection": dev.connection_type}
+        try:
+            ld = await maybe(create_using_usbmux(dev.serial, autopair=False, connection_type=dev.connection_type))
+            try:
+                info["name"] = await maybe(ld.get_value(key="DeviceName"))
+                info["ios"] = await maybe(ld.get_value(key="ProductVersion"))
+                try:
+                    status = await maybe(ld.get_value(domain="com.apple.security.mac.amfi", key="DeveloperModeStatus"))
+                    info["developer_mode"] = None if status is None else bool(status)
+                except Exception:
+                    info["developer_mode"] = None
+                try:
+                    disk = await maybe(ld.get_value(domain="com.apple.disk_usage")) or {}
+                    info["disk_total"] = disk.get("TotalDataCapacity")
+                    info["disk_free"] = disk.get("TotalDataAvailable")
+                except Exception:
+                    pass
+            finally:
+                try:
+                    await maybe(ld.close())
+                except Exception:
+                    pass
+        except Exception as e:
+            info["error"] = f"{type(e).__name__}: {e}"
+        out["devices"].append(info)
+
+
+try:
+    asyncio.run(probe())
+except Exception as e:
+    out["error"] = f"{type(e).__name__}: {e}"
+print(json.dumps(out))
+"""
+
+
+def _ancestor_pids():
+    """PID-овете на собствения процес и всичките му родители - шел-ът, от който е
+    пуснат doctor, често съдържа същите думи в командния си ред и не бива да се брои."""
+    pids = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in pids:
+        pids.add(pid)
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                pid = next(int(line.split()[1]) for line in f if line.startswith("PPid:"))
+        except (OSError, StopIteration, ValueError):
+            break
+    return pids
+
+
+def _find_processes(*needles):
+    """[(pid, cmdline)] за всички процеси, чийто команден ред съдържа всяка от
+    needles (чете /proc, за да няма зависимост от psutil)."""
+    found = []
+    skip = _ancestor_pids()
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit() or int(entry) in skip:
+            continue
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\0", b" ").decode(errors="replace").strip()
+        except OSError:
+            continue
+        if all(n in cmdline for n in needles):
+            found.append((int(entry), cmdline))
+    return found
+
+
+def _human_bytes(n):
+    if n is None:
+        return "?"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def _log_problems(path):
+    """Последните LOG_TAIL_LINES реда от лог файла, които приличат на грешка."""
+    if not os.path.isfile(path):
+        return []
+    with open(path, errors="replace") as f:
+        lines = f.readlines()[-LOG_TAIL_LINES:]
+    return [line.rstrip() for line in lines if LOG_ERROR_RE.search(line)]
+
+
+def _probe_device():
+    python = VENV_PYTHON if os.path.isfile(VENV_PYTHON) else sys.executable
+    try:
+        proc = subprocess.run(
+            [python, "-c", _DEVICE_PROBE_SCRIPT],
+            capture_output=True, text=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return {"devices": [], "error": "телефонът не отговори за 20 сек (заключен екран или чака 'Trust This Computer'?)"}
+    try:
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        err = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "неизвестна грешка"
+        return {"devices": [], "error": err}
+
+
+class _Report:
+    """Събира редове за печат и брои проблемите, за да върне exit code."""
+
+    def __init__(self):
+        self.problems = 0
+        self.warnings = 0
+
+    def section(self, title):
+        print(f"\n== {title} ==")
+
+    def ok(self, msg):
+        print(f"  [OK] {msg}")
+
+    def warn(self, msg):
+        self.warnings += 1
+        print(f"  [!!] {msg}")
+
+    def bad(self, msg):
+        self.problems += 1
+        print(f"  [XX] {msg}")
+
+    def hint(self, msg):
+        print(f"       -> {msg}")
+
+
+def run_doctor():
+    """Пуска всички проверки и връща 0 (чисто), 1 (само предупреждения) или 2 (проблеми)."""
+    r = _Report()
+
+    # --- 1. инсталация ---
+    r.section("Инсталация")
+    if os.path.isfile(PYMOBILEDEVICE3):
+        r.ok(f"pymobiledevice3: {PYMOBILEDEVICE3}")
+    else:
+        r.bad(f"липсва {PYMOBILEDEVICE3}")
+        r.hint("python3 -m venv venv && ./venv/bin/pip install pymobiledevice3 gpxpy tkintermapview")
+    try:
+        import gpxpy  # noqa: F401
+        r.ok("gpxpy е инсталиран")
+    except ImportError:
+        r.warn("gpxpy не е инсталиран - маршрутите няма да работят")
+    if shutil.which("pkexec"):
+        r.ok("pkexec е наличен")
+    else:
+        r.bad("pkexec липсва - tunneld не може да се стартира с root права")
+
+    # --- 2. tunneld ---
+    r.section("tunneld")
+    tunneld_procs = _find_processes("pymobiledevice3", "remote", "tunneld")
+    alive = tunneld_running()
+    if alive and tunneld_procs:
+        r.ok(f"работи и отговаря на {TUNNELD_URL} (PID {', '.join(str(p) for p, _ in tunneld_procs)})")
+    elif alive:
+        r.ok(f"отговаря на {TUNNELD_URL} (процесът не се вижда - вероятно е на друг потребител/root)")
+    elif tunneld_procs:
+        r.bad(f"има {len(tunneld_procs)} tunneld процес(а), но {TUNNELD_URL} не отговаря - ЗАСЕДНАЛ tunneld")
+        for pid, cmd in tunneld_procs:
+            r.hint(f"PID {pid}: {cmd}")
+        r.hint("sudo pkill -f 'remote tunneld'   (ще се пусне наново при следващия set/play)")
+    else:
+        r.ok("не работи - ще се стартира автоматично при set / route play / goto")
+    if len(tunneld_procs) > 1:
+        r.warn(f"{len(tunneld_procs)} едновременни tunneld процеса - остави само един")
+
+    # --- 3. симулация ---
+    r.section("Симулация")
+    stale_pid = None
+    if os.path.isfile(PID_FILE):
+        with open(PID_FILE) as f:
+            raw = f.read().strip()
+        try:
+            candidate = int(raw)
+            os.kill(candidate, 0)
+        except (ValueError, ProcessLookupError):
+            stale_pid = raw or "(празен)"
+        except PermissionError:
+            pass
+    pid = get_running_pid()  # чисти сам остарял loc.pid
+    sim_procs = _find_processes("pymobiledevice3", "simulate-location")
+    tracked = {p for p, _ in sim_procs if p == pid}
+    untracked = [(p, c) for p, c in sim_procs if p != pid]
+
+    if stale_pid is not None:
+        r.warn(f"loc.pid сочеше към несъществуващ процес ({stale_pid}) - изтрит")
+    if pid:
+        label = get_state_label()
+        r.ok(f"активна симулация PID {pid}" + (f" - {label}" if label else ""))
+        if not tracked:
+            r.warn(f"PID {pid} е жив, но не е simulate-location процес - loc.pid сочи към грешен процес")
+            r.hint("./venv/bin/python3 loc.py stop && rm -f loc.pid loc.state")
+    else:
+        r.ok("няма активна симулация (реална GPS локация)")
+        if os.path.isfile(STATE_FILE):
+            r.warn("loc.state е останал без работеща симулация")
+            r.hint(f"rm -f {STATE_FILE}")
+    if untracked:
+        r.bad(f"{len(untracked)} simulate-location процес(а) извън контрола на loc.py - ЗАДРЪСТВАНЕ")
+        for p, c in untracked:
+            r.hint(f"PID {p}: {c}")
+        r.hint("pkill -f 'dvt simulate-location'   (после loc.py set/play наново)")
+
+    # --- 4. остатъчни файлове и логове ---
+    r.section("Файлове и логове")
+    if os.path.isfile(DENSIFIED_ROUTE_FILE) and not pid:
+        r.warn(f"остатъчен {os.path.basename(DENSIFIED_ROUTE_FILE)} без активна симулация")
+        r.hint(f"rm -f {DENSIFIED_ROUTE_FILE}")
+    for path in (LOG_FILE, TUNNELD_LOG_FILE):
+        name = os.path.basename(path)
+        if not os.path.isfile(path):
+            r.ok(f"{name}: няма (още не е писано в него)")
+            continue
+        size = os.path.getsize(path)
+        if size > LOG_BIG_BYTES:
+            r.warn(f"{name} е {_human_bytes(size)} - твърде голям")
+            r.hint(f": > {path}   (изчиства го)")
+        else:
+            r.ok(f"{name}: {_human_bytes(size)}")
+        problems = _log_problems(path)
+        if problems:
+            r.warn(f"{name}: {len(problems)} реда с грешки в последните {LOG_TAIL_LINES}; последните 3:")
+            for line in problems[-3:]:
+                r.hint(line[:160])
+
+    # --- 5. телефон ---
+    r.section("Телефон")
+    probe = _probe_device()
+    if probe.get("error") and not probe.get("devices"):
+        if "No module named" in probe["error"]:
+            r.bad("pymobiledevice3 не е инсталиран, не мога да проверя телефона (виж 'Инсталация')")
+        elif "Usbmuxd" in probe["error"]:
+            r.bad("usbmuxd не работи - компютърът изобщо не вижда USB устройства на Apple")
+            r.hint("sudo systemctl start usbmuxd   (или: sudo apt install usbmuxd)")
+        else:
+            r.bad(f"не мога да проверя телефона: {probe['error']}")
+            r.hint("кабел за данни, отключен екран, 'Trust This Computer', и usbmuxd да работи")
+    elif not probe.get("devices"):
+        r.bad("няма свързан iPhone по USB")
+        r.hint("кабел за данни (не само за зареждане), отключен екран, 'Trust This Computer'")
+    for dev in probe.get("devices", []):
+        name = dev.get("name") or dev.get("udid")
+        if dev.get("error"):
+            r.bad(f"{name}: не отговаря - {dev['error']}")
+            r.hint("отключи телефона и потвърди 'Trust This Computer'")
+            continue
+        r.ok(f"{name} (iOS {dev.get('ios', '?')}, {dev.get('connection', '?')})")
+        dm = dev.get("developer_mode")
+        if dm is True:
+            r.ok("Developer Mode е включен")
+        elif dm is False:
+            r.bad("Developer Mode е ИЗКЛЮЧЕН - simulate-location няма да работи")
+            r.hint("Settings -> Privacy & Security -> Developer Mode")
+        else:
+            r.warn("не мога да прочета Developer Mode (обикновено при iOS < 16)")
+        total, free = dev.get("disk_total"), dev.get("disk_free")
+        if total and free is not None:
+            pct = free / total * 100
+            msg = f"памет: свободни {_human_bytes(free)} от {_human_bytes(total)} ({pct:.0f}%)"
+            if pct < 5:
+                r.bad(msg + " - паметта е почти пълна (задръстване)")
+            elif pct < 15:
+                r.warn(msg + " - малко свободно място")
+            else:
+                r.ok(msg)
+
+    # --- обобщение ---
+    print()
+    if r.problems:
+        print(f"Резултат: {r.problems} проблем(а), {r.warnings} предупреждение(я) - ИМА задръстване, виж [XX] по-горе.")
+        return 2
+    if r.warnings:
+        print(f"Резултат: {r.warnings} предупреждение(я), без сериозни проблеми.")
+        return 1
+    print("Резултат: всичко е чисто, няма задръстване.")
+    return 0
+
+
+def cmd_doctor(args):
+    if args:
+        print("Употреба: loc.py doctor")
+        sys.exit(1)
+    sys.exit(run_doctor())
+
+
 COMMANDS = {
     "set": cmd_set,
     "stop": cmd_stop,
@@ -525,12 +842,13 @@ COMMANDS = {
     "route": cmd_route,
     "search": cmd_search,
     "goto": cmd_goto,
+    "doctor": cmd_doctor,
 }
 
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("Употреба: loc.py <set|stop|status|list|add|remove|route|search|goto> [аргументи]")
+        print("Употреба: loc.py <set|stop|status|list|add|remove|route|search|goto|doctor> [аргументи]")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])
 

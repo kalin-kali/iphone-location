@@ -27,6 +27,7 @@ python3 -m venv venv
 ./venv/bin/python3 loc.py set 42.6977 23.3219          # or raw coordinates
 ./venv/bin/python3 loc.py status                       # is a simulation active?
 ./venv/bin/python3 loc.py stop                         # restore real GPS
+./venv/bin/python3 loc.py doctor                       # diagnose stuck processes / phone
 
 ./venv/bin/python3 loc.py route add my-walk route.gpx  # save a GPX route
 ./venv/bin/python3 loc.py route list                   # list saved routes
@@ -45,3 +46,21 @@ The first `set`/`route play`/`goto` call starts a root `pymobiledevice3 remote t
 ## How route playback works
 
 `route play` interpolates extra points between your GPX waypoints so movement looks continuous instead of teleporting between them, and paces the interpolation by both time and real-world distance so long legs don't lose resolution. Pass a route through the GUI's smooth/teleport toggle if you want the old jump-between-waypoints behavior instead.
+
+## Troubleshooting: `loc.py doctor`
+
+When the phone seems "stuck" (location won't change, `stop` doesn't restore real GPS, playback hangs), run:
+
+```bash
+./venv/bin/python3 loc.py doctor
+```
+
+It checks, in order:
+
+- **Install** - `venv/bin/pymobiledevice3`, `gpxpy`, `pkexec`
+- **tunneld** - whether the root tunnel answers on its port, whether a tunneld process exists but hangs, or several are running at once
+- **Simulation** - stale `loc.pid` (auto-removed), leftover `loc.state`, and `simulate-location` processes that `loc.py` no longer tracks (the usual cause of a phone that keeps a spoofed location)
+- **Files & logs** - leftover `.densified_route.gpx`, oversized logs, and recent error lines in `loc.log` / `tunneld.log`
+- **Phone** - USB connection, device name / iOS version, Developer Mode, and free storage
+
+Each problem line (`[XX]`) comes with the command to fix it. Exit code is `0` when clean, `1` for warnings only, `2` when a real problem was found.
