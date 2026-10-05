@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Провери линка</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: narrow reading column; hero = clip player + live link scanner; then the numbered 10-step process; then a self-check list. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#14202b; --muted:#5a6873; --line:#d7dee4;
+  --accent:#0b6e6e; --accent-ink:#ffffff; --amber:#b86a00;
+  --ok:#1f7a3d; --warn:#a86400; --bad:#b3261e;
+  --ok-bg:#e5f3ea; --warn-bg:#fbf0dc; --bad-bg:#fbe5e3;
+  --screen:#0f1a22; --screen-ink:#dfe9ee;
+  --f-display:"Unbounded","Arial Black",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1419; --surface:#152029; --ink:#e3ebf0; --muted:#94a3ad; --line:#26343f;
+  --accent:#3fb8b0; --accent-ink:#04181a; --amber:#f0a83c;
+  --ok:#5fcf86; --warn:#f0b04c; --bad:#ff7a6e;
+  --ok-bg:#12301f; --warn-bg:#33270f; --bad-bg:#3a1714;
+  --screen:#081015; --screen-ink:#dfe9ee; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1419; --surface:#152029; --ink:#e3ebf0; --muted:#94a3ad; --line:#26343f;
+  --accent:#3fb8b0; --accent-ink:#04181a; --amber:#f0a83c;
+  --ok:#5fcf86; --warn:#f0b04c; --bad:#ff7a6e;
+  --ok-bg:#12301f; --warn-bg:#33270f; --bad-bg:#3a1714;
+  --screen:#081015; --screen-ink:#dfe9ee; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--f-body);margin:0}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:28px 64px;display:grid;gap:48px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(1.9rem,6vw,3rem);font-weight:700;letter-spacing:-.01em}
+h2{font-size:clamp(1.3rem,3.6vw,1.75rem);font-weight:700}
+h3{font-size:1.02rem;font-weight:500}
+p{margin:0}
+.eyebrow{font:600 .75rem/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.lede{color:var(--muted);max-width:62ch;font-size:1.08rem}
+header{display:grid;gap:14px}
+section{display:grid;gap:18px;min-width:0}
+a{color:var(--accent)}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+/* clip player */
+.player{background:var(--screen);color:var(--screen-ink);border-radius:14px;overflow:hidden;display:grid}
+.stage{position:relative;aspect-ratio:16/9;max-width:100%;overflow:hidden}
+.scene{position:absolute;inset:0;display:grid;place-items:center;padding:6%;opacity:0;transition:opacity .5s}
+.scene.on{opacity:1}
+.scene .inner{display:grid;gap:4%;justify-items:center;text-align:center;width:100%}
+.scene .num{font:600 clamp(.7rem,1.8vw,.9rem)/1 var(--f-mono);color:#f0a83c;letter-spacing:.14em}
+.scene .big{font:700 clamp(1.1rem,4.2vw,2.3rem)/1.15 var(--f-display);max-width:20ch}
+.scene .small{font-size:clamp(.8rem,2.2vw,1.05rem);color:#a9bcc6;max-width:44ch}
+.urlbar{font:clamp(.75rem,2.3vw,1.15rem) var(--f-mono);background:#1c2a34;border:1px solid #2c3f4c;border-radius:999px;padding:.55em 1.1em;display:inline-flex;gap:.5em;align-items:center;max-width:100%;overflow:hidden;white-space:nowrap}
+.urlbar .hl{background:#b3261e;color:#fff;border-radius:4px;padding:0 .25em}
+.urlbar .good{background:#1f7a3d;color:#fff;border-radius:4px;padding:0 .25em}
+.icon{width:clamp(48px,11vw,96px);height:auto}
+.scene.on .pop{animation:pop .6s .15s both}
+.scene.on .scan{animation:scan 1.8s .3s ease-in-out infinite alternate}
+@keyframes pop{from{transform:scale(.6);opacity:.2}to{transform:none;opacity:1}}
+@keyframes scan{from{transform:translateX(-30%)}to{transform:translateX(30%)}}
+.controls{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#0b141a;border-top:1px solid #1f2d37}
+.controls button{background:#f0a83c;color:#1a1204;border:0;border-radius:8px;font:600 .9rem var(--f-body);padding:8px 14px;cursor:pointer;min-width:96px}
+.bar{flex:1;height:6px;background:#22323d;border-radius:4px;overflow:hidden;min-width:0}
+.bar i{display:block;height:100%;width:0;background:#3fb8b0}
+.time{font:.8rem var(--f-mono);color:#94a3ad;font-variant-numeric:tabular-nums}
+.ai-video{width:100%;display:block;background:#000}
+
+/* scanner */
+.scanner{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row input{flex:1 1 260px;min-width:0;font:15px var(--f-mono);padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:10px;font:600 15px var(--f-body);padding:12px 18px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+.samples{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.85rem;color:var(--muted)}
+.samples button{font:.8rem var(--f-mono);background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:4px 10px;cursor:pointer}
+.verdict{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:10px;font-weight:600}
+.verdict.ok{background:var(--ok-bg);color:var(--ok)}
+.verdict.warn{background:var(--warn-bg);color:var(--warn)}
+.verdict.bad{background:var(--bad-bg);color:var(--bad)}
+.findings{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.findings li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}
+.findings li > div{min-width:0;overflow-wrap:anywhere}
+.pill{font:600 .7rem/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:5px 7px;border-radius:6px;margin-top:3px;min-width:64px;text-align:center}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.tools a{display:grid;gap:2px;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg)}
+.tools a b{font-weight:600;color:var(--accent)}
+.tools a span{font-size:.82rem;color:var(--muted)}
+.note{font-size:.85rem;color:var(--muted)}
+
+/* steps */
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:0;counter-reset:s}
+.steps li{display:grid;grid-template-columns:56px 1fr;gap:16px;padding-block:18px;border-top:1px solid var(--line)}
+.steps li:last-child{border-bottom:1px solid var(--line)}
+.steps li::before{counter-increment:s;content:counter(s,decimal-leading-zero);font:700 1.4rem/1 var(--f-display);color:var(--accent)}
+.steps li > div{display:grid;gap:6px;min-width:0}
+.steps p{color:var(--muted);max-width:64ch}
+.steps code{font-family:var(--f-mono);font-size:.88em;background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:1px 5px;overflow-wrap:anywhere}
+
+/* checklist */
+.check{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:14px}
+.check label{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+.check input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent);flex:none}
+.score{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.meter{flex:1 1 200px;height:10px;background:var(--line);border-radius:6px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.score b{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+footer{color:var(--muted);font-size:.85rem}
+@media (prefers-reduced-motion:reduce){.scene{transition:none}.scene.on .pop,.scene.on .scan{animation:none}}
+@media (max-width:520px){.steps li{grid-template-columns:40px 1fr;gap:10px}.steps li::before{font-size:1.1rem}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Ръководство · 10 стъпки · 2 минути</span>
+    <h1>Провери линка, преди да повярваш</h1>
+    <p class="lede">Получил си линк в Messenger, Viber или Facebook и звучи шокиращо? Ето как за няколко минути да разбереш дали информацията е вярна и дали сайтът е истински.</p>
+  </header>
+
+  <section aria-labelledby="clip-h">
+    <h2 id="clip-h">Клипче: проверката за 40 секунди</h2>
+    <div class="player">
+      <div id="aiVideoSlot" hidden></div>
+      <div class="stage" id="stage" aria-live="polite"></div>
+      <div class="controls">
+        <button id="playBtn" type="button">▶ Пусни</button>
+        <div class="bar"><i id="barFill"></i></div>
+        <span class="time" id="time">0:00 / 0:40</span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="scan-h">
+    <h2 id="scan-h">Бърза проверка на адреса</h2>
+    <div class="scanner">
+      <form class="row" id="scanForm">
+        <input id="urlInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Постави линка тук…" value="http://dsk-bank.secure-login.xyz/verify?id=4821">
+        <button class="btn" type="submit">Провери</button>
+      </form>
+      <div class="samples">Пробвай:
+        <button type="button" data-u="https://www.bnr.bg/post/101234">bnr.bg</button>
+        <button type="button" data-u="https://bit.ly/3xYzAbc">кратък линк</button>
+        <button type="button" data-u="https://faceb00k-login.com/@user">faceb00k</button>
+        <button type="button" data-u="http://185.23.44.10/econt/pratka">IP адрес</button>
+      </div>
+      <div id="result"></div>
+      <div>
+        <h3 style="margin-bottom:8px">Провери го и с външни инструменти</h3>
+        <div class="tools" id="tools"></div>
+      </div>
+      <p class="note">Тази проверка гледа само как изглежда адресът. Тя не отваря сайта и не може да каже дали текстът в статията е верен. За това са стъпките по-долу.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="steps-h">
+    <h2 id="steps-h">10-те стъпки</h2>
+    <ol class="steps">
+      <li><div><h3>Прочети домейна отдясно наляво</h3><p>Истинският собственик е частта точно преди <code>.bg</code>, <code>.com</code> и т.н. В <code>dsk-bank.secure-login.xyz</code> сайтът е <code>secure-login.xyz</code>, не на банката. Търси сменени букви: <code>faceb00k</code>, <code>paypa1</code>, <code>rn</code> вместо <code>m</code>.</p></div></li>
+      <li><div><h3>Катинарчето не е гаранция</h3><p>HTTPS значи само, че връзката е криптирана. Измамните сайтове също имат катинар. Липсата му обаче е лош знак, особено ако сайтът иска парола или карта.</p></div></li>
+      <li><div><h3>Разбери кой стои зад сайта</h3><p>Има ли страница „За нас“, редакция, адрес, телефон? Провери в WHOIS кога е регистриран домейнът. Сайт, създаден преди седмица, който „разкрива сензация“, е подозрителен.</p></div></li>
+      <li><div><h3>Виж автора и датата</h3><p>Има ли име на автор и реално ли съществува човекът? Стара новина, споделена като нова, е един от най-честите трикове.</p></div></li>
+      <li><div><h3>Търси източниците</h3><p>Добрата статия казва откъде знае: документ, официално изявление, изследване с линк. „Учени доказаха“ без име на учен или изследване е червен флаг.</p></div></li>
+      <li><div><h3>Провери „встрани“</h3><p>Отвори нов раздел и потърси същото в Google News. Ако нещо толкова важно е вярно, БНР, БТА или големи международни медии също ще го съобщават. Ако го пише само един сайт, бъди скептичен.</p></div></li>
+      <li><div><h3>Провери снимките</h3><p>Използвай Google Lens или TinEye. Често снимката е от друго събитие, от друга държава или от преди години.</p></div></li>
+      <li><div><h3>Внимавай с емоциите</h3><p>ГЛАВНИ БУКВИ, „Споделете преди да го изтрият!“, силен гняв или страх. Фалшивите новини са направени да реагираш бързо, а не да мислиш.</p></div></li>
+      <li><div><h3>Потърси във fact-check сайтове</h3><p>Factcheck.bg, Google Fact Check Explorer и Snopes често вече са проверили популярните твърдения.</p></div></li>
+      <li><div><h3>Сканирай линка, преди да го отвориш</h3><p>Постави го във VirusTotal или Google Safe Browsing. Никога не въвеждай парола или данни от карта в сайт, до който си стигнал през линк от съобщение. Отвори банката или куриера сам, от приложението им.</p></div></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="check-h">
+    <h2 id="check-h">Твоят линк: отметни какво си проверил</h2>
+    <div class="check" id="check">
+      <label><input type="checkbox" id="c1"> Домейнът е точно този, който очаквам, без сменени букви</label>
+      <label><input type="checkbox" id="c2"> Знам кой стои зад сайта (за нас, контакти, WHOIS)</label>
+      <label><input type="checkbox" id="c3"> Има автор и дата и новината не е стара</label>
+      <label><input type="checkbox" id="c4"> Посочени са реални източници</label>
+      <label><input type="checkbox" id="c5"> Поне две надеждни медии съобщават същото</label>
+      <label><input type="checkbox" id="c6"> Снимките не са от друго събитие</label>
+      <label><input type="checkbox" id="c7"> Текстът не ме подтиква към паника или бързо споделяне</label>
+      <label><input type="checkbox" id="c8"> VirusTotal / Safe Browsing не показват проблем</label>
+      <div class="score"><div class="meter"><i id="meter"></i></div><b id="scoreTxt">0 / 8</b></div>
+      <div id="scoreMsg" class="verdict bad">Още не си проверил нищо. Не споделяй.</div>
+    </div>
+  </section>
+
+  <footer>Направено за лесна проверка на линкове. Нито един инструмент не е 100% сигурен. Ако се съмняваш, не споделяй и не въвеждай лични данни.</footer>
+</div>
+
+<script>
+/* ---------- clip player ---------- */
+const lock='<svg class="icon pop" viewBox="0 0 64 64" fill="none"><rect x="12" y="28" width="40" height="28" rx="5" fill="#3fb8b0"/><path d="M20 28v-8a12 12 0 0 1 24 0v8" stroke="#3fb8b0" stroke-width="6" fill="none"/><circle cx="32" cy="42" r="4" fill="#0f1a22"/></svg>';
+const glass='<svg class="icon scan" viewBox="0 0 64 64" fill="none"><circle cx="27" cy="27" r="16" stroke="#f0a83c" stroke-width="6"/><path d="M39 39l14 14" stroke="#f0a83c" stroke-width="7" stroke-linecap="round"/></svg>';
+const shield='<svg class="icon pop" viewBox="0 0 64 64" fill="none"><path d="M32 6l22 8v16c0 14-9 24-22 28C19 54 10 44 10 30V14z" fill="#b3261e"/><path d="M32 20v16" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="32" cy="45" r="3.5" fill="#fff"/></svg>';
+const okI='<svg class="icon pop" viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="26" fill="#1f7a3d"/><path d="M20 33l8 8 16-17" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+const scenes=[
+  {n:'',big:'Получи линк. Спри за 40 секунди.',small:'Преди да го отвориш или споделиш.',x:glass},
+  {n:'СТЪПКА 1',big:'Прочети домейна отдясно наляво',x:'<div class="urlbar pop">dsk-bank.<span class="hl">secure-login.xyz</span>/verify</div>',small:'Сайтът е на secure-login.xyz, не на банката.'},
+  {n:'СТЪПКА 2',big:'Катинарът не е доказателство',x:lock,small:'HTTPS = криптирана връзка. Измамниците също го имат.'},
+  {n:'СТЪПКА 3',big:'Кой стои зад сайта?',x:glass,small:'„За нас“, контакти, кога е регистриран домейнът.'},
+  {n:'СТЪПКА 4–5',big:'Автор, дата, източници',x:'<div class="urlbar pop">„Учени доказаха…“ <span class="hl">кои?</span></div>',small:'Без източник няма доказателство.'},
+  {n:'СТЪПКА 6',big:'Провери встрани',x:'<div class="urlbar pop"><span class="good">bnr.bg</span> · <span class="good">bta.bg</span> · <span class="good">reuters.com</span></div>',small:'Ако е вярно, и други надеждни медии го пишат.'},
+  {n:'СТЪПКА 7–8',big:'Снимки и емоции',x:shield,small:'Обратно търсене на снимка. „Сподели преди да го изтрият!“ е червен флаг.'},
+  {n:'СТЪПКА 9–10',big:'Fact-check и сканиране',x:okI,small:'Factcheck.bg, VirusTotal. Не въвеждай пароли от линк в съобщение.'}
+];
+const stage=document.getElementById('stage');
+stage.innerHTML=scenes.map((s,i)=>`<div class="scene${i===0?' on':''}"><div class="inner">${s.n?`<span class="num">${s.n}</span>`:''}${s.x}<div class="big">${s.big}</div><div class="small">${s.small}</div></div></div>`).join('');
+const els=[...stage.children], PER=5000, TOTAL=PER*scenes.length;
+let t=0,playing=false,last=0,raf=0;
+const fmt=ms=>{const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function render(){
+  const idx=Math.min(scenes.length-1,Math.floor(t/PER));
+  els.forEach((e,i)=>e.classList.toggle('on',i===idx));
+  document.getElementById('barFill').style.width=(t/TOTAL*100)+'%';
+  document.getElementById('time').textContent=fmt(t)+' / '+fmt(TOTAL);
+}
+function tick(now){
+  if(!playing)return;
+  t+=now-last;last=now;
+  if(t>=TOTAL){t=TOTAL;playing=false;btn.textContent='↺ Отначало';render();return}
+  render();raf=requestAnimationFrame(tick);
+}
+const btn=document.getElementById('playBtn');
+btn.onclick=()=>{
+  if(playing){playing=false;btn.textContent='▶ Продължи';return}
+  if(t>=TOTAL)t=0;
+  playing=true;btn.textContent='❚❚ Пауза';last=performance.now();raf=requestAnimationFrame(tick);
+};
+render();
+
+/* ---------- URL scanner ---------- */
+const BRANDS=['dsk','unicredit','bulbank','postbank','fibank','ubb','raiffeisen','econt','speedy','olx','emag','nap','paypal','google','facebook','instagram','apple','icloud','microsoft','amazon','netflix','revolut','viber','whatsapp','dhl'];
+const SHORT=['bit.ly','tinyurl.com','t.co','goo.gl','ow.ly','is.gd','cutt.ly','rb.gy','shorturl.at','tiny.cc','s.id'];
+const RISKY_TLD=['xyz','top','click','loan','work','gq','tk','ml','cf','ga','zip','mov','icu','buzz','rest','cam','sbs','cfd'];
+const TWO_LEVEL=['co.uk','com.au','co.jp','com.br','com.tr','org.uk'];
+const LEET={'0':'o','1':'l','3':'e','4':'a','5':'s','7':'t','@':'a'};
+
+function regDomain(host){
+  const p=host.split('.');
+  const last2=p.slice(-2).join('.');
+  return TWO_LEVEL.includes(last2)&&p.length>2?p.slice(-3).join('.'):last2;
+}
+function analyse(raw){
+  const out=[];let s=raw.trim();
+  if(!s)return null;
+  if(!/^[a-z]+:\/\//i.test(s))s='https://'+s;
+  let u;try{u=new URL(s)}catch{return{level:'bad',host:'',items:[['bad','Това не прилича на валиден адрес.']]}}
+  const host=u.hostname.toLowerCase(), reg=regDomain(host), tld=host.split('.').pop();
+  const regName=reg.split('.')[0];
+  out.push(['info',`Истинският сайт е <b>${reg||host}</b>. Всичко преди него може да е украса.`]);
+  if(u.protocol==='http:')out.push(['bad','Няма HTTPS. Не въвеждай никакви данни тук.']);
+  else out.push(['ok','Връзката е HTTPS. Това е добре, но не доказва, че сайтът е честен.']);
+  if(/^\d{1,3}(\.\d{1,3}){3}$/.test(host)||host.includes(':'))out.push(['bad','Вместо име има IP адрес. Истински банки и куриери не правят така.']);
+  if(host.includes('xn--'))out.push(['bad','Домейнът използва специални символи (punycode). Може да имитира друг сайт с подобни букви.']);
+  if(SHORT.includes(host))out.push(['warn','Това е съкратен линк. Не се вижда къде води. Разшири го с unshorten.it преди да го отвориш.']);
+  if(RISKY_TLD.includes(tld))out.push(['warn',`Окончанието .${tld} е евтино и често се ползва за измами.`]);
+  if(raw.includes('@')&&/\/\/[^/]*@/.test(s))out.push(['bad','В адреса има „@“ преди името. Браузърът ще отиде на частта след „@“.']);
+  const depth=host.split('.').length;
+  if(depth>4)out.push(['warn','Много поддомейни. Така се крие истинският сайт.']);
+  if((reg.match(/-/g)||[]).length>=2)out.push(['warn','Много тирета в името (напр. secure-login-bank). Типично за фалшиви сайтове.']);
+  const norm=host.replace(/[0134578@]/g,c=>LEET[c]||c);
+  for(const b of BRANDS){
+    const inHost=host.includes(b), looksLike=!inHost&&norm.includes(b);
+    if(looksLike){out.push(['bad',`Името прилича на <b>${b}</b>, но с подменени букви/цифри.`]);break}
+    if(inHost&&regName!==b&&!(b==='dsk'&&regName==='dskbank')){out.push(['bad',`В адреса пише <b>${b}</b>, но сайтът всъщност е ${reg}. Вероятно имитация.`]);break}
+  }
+  if(/login|verify|secure|update|account|confirm|plashtane|pratka|parcel/i.test(u.pathname+u.hostname)&&out.some(x=>x[0]!=='ok'&&x[0]!=='info'))
+    out.push(['warn','Думи като „login“, „verify“, „pratka“ + съмнителен домейн = класически фишинг.']);
+  if(s.length>120)out.push(['warn','Много дълъг адрес. Може да крие истинската дестинация.']);
+  const bad=out.filter(x=>x[0]==='bad').length, warn=out.filter(x=>x[0]==='warn').length;
+  const level=bad?'bad':warn?'warn':'ok';
+  return{level,host,items:out,url:u.href};
+}
+const LBL={ok:'Добре',warn:'Внимание',bad:'Опасно',info:'Инфо'};
+const VERD={ok:'Адресът изглежда нормално. Сега провери съдържанието по стъпките.',warn:'Има съмнителни признаци. Провери внимателно, преди да отвориш.',bad:'Висок риск. Не отваряй и не въвеждай данни.'};
+function show(raw){
+  const r=analyse(raw),res=document.getElementById('result');
+  if(!r){res.innerHTML='';return}
+  res.innerHTML=`<div style="display:grid;gap:12px"><div class="verdict ${r.level}">${VERD[r.level]}</div><ul class="findings">${r.items.map(([k,t])=>`<li><span class="pill ${k==='info'?'ok':k}">${LBL[k]}</span><div>${t}</div></li>`).join('')}</ul></div>`;
+  const e=encodeURIComponent(r.url||raw), h=encodeURIComponent(r.host);
+  const tools=[
+    ['VirusTotal','Сканира с 70+ антивируса','https://www.virustotal.com/gui/search/'+encodeURIComponent(encodeURIComponent(r.url||raw))],
+    ['Google Safe Browsing','Списък на Google с опасни сайтове','https://transparencyreport.google.com/safe-browsing/search?url='+e],
+    ['WHOIS','Кога и от кого е регистриран','https://who.is/whois/'+h],
+    ['Wayback Machine','Как е изглеждал сайтът преди','https://web.archive.org/web/*/'+h],
+    ['Google News','Пишат ли и други медии','https://news.google.com/search?q='+h+'&hl=bg'],
+    ['Fact Check Explorer','Проверени твърдения','https://toolbox.google.com/factcheck/explorer/search/'+h],
+    ['Factcheck.bg','Български fact-check','https://factcheck.bg/'],
+    ['Google Lens','Обратно търсене на снимка','https://lens.google.com/'],
+    ['Unshorten.it','Къде води кратък линк','https://unshorten.it/']
+  ];
+  document.getElementById('tools').innerHTML=tools.map(([n,d,l])=>`<a href="${l}" target="_blank" rel="noopener"><b>${n} ↗</b><span>${d}</span></a>`).join('');
+}
+const inp=document.getElementById('urlInput');
+document.getElementById('scanForm').addEventListener('submit',e=>{e.preventDefault();show(inp.value)});
+document.querySelectorAll('.samples button').forEach(b=>b.onclick=()=>{inp.value=b.dataset.u;show(b.dataset.u)});
+show(inp.value);
+
+/* ---------- checklist ---------- */
+const boxes=[...document.querySelectorAll('#check input')];
+function score(){
+  const n=boxes.filter(b=>b.checked).length;
+  document.getElementById('meter').style.width=(n/boxes.length*100)+'%';
+  document.getElementById('scoreTxt').textContent=n+' / '+boxes.length;
+  const m=document.getElementById('scoreMsg');
+  if(n===boxes.length){m.className='verdict ok';m.textContent='Линкът мина всички проверки. Вероятно е надежден.'}
+  else if(n>=5){m.className='verdict warn';m.textContent='Почти. Провери и останалите, преди да споделиш.'}
+  else{m.className='verdict bad';m.textContent=n?'Твърде малко проверки. Не споделяй още.':'Още не си проверил нищо. Не споделяй.'}
+  try{localStorage.setItem('chk',JSON.stringify(boxes.map(b=>b.checked)))}catch{}
+}
+try{const s=JSON.parse(localStorage.getItem('chk')||'[]');boxes.forEach((b,i)=>b.checked=!!s[i])}catch{}
+boxes.forEach(b=>b.onchange=score);score();
+</script>
+</body>
+</html>
