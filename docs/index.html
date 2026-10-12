@@ -113,6 +113,9 @@ a{color:var(--accent)}
 .meter{flex:1 1 200px;height:10px;background:var(--line);border-radius:6px;overflow:hidden}
 .meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
 .score b{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.komiks{margin:0;display:grid;gap:10px}
+.komiks img{width:100%;max-width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--line);background:var(--surface)}
+.komiks figcaption{font-size:.9rem;color:var(--muted)}
 footer{color:var(--muted);font-size:.85rem}
 @media (prefers-reduced-motion:reduce){.scene{transition:none}.scene.on .pop,.scene.on .scan{animation:none}}
 @media (max-width:520px){.steps li{grid-template-columns:40px 1fr;gap:10px}.steps li::before{font-size:1.1rem}}
@@ -138,6 +141,14 @@ footer{color:var(--muted);font-size:.85rem}
         <span class="time" id="time">0:00 / 0:40</span>
       </div>
     </div>
+  </section>
+
+  <section aria-labelledby="komiks-h">
+    <h2 id="komiks-h">Комикс: безплатните таблети</h2>
+    <figure class="komiks">
+      <img src="komiks.jpg" width="1254" height="1254" loading="lazy" alt="Комикс в 8 кадъра. Момче показва на момиче новина, че учениците ще получат безплатни таблети. Тя забелязва странния адрес nai-istinskite-novini-999.xyz, че статията няма автор и е публикувана през 2020 г. Търсят новината в bnt.bg, novinite.bg, 24chasa.bg и dnes.bg и не я намират никъде. Поуката: преди да повярваш, провери сайта, автора, датата и други източници.">
+      <figcaption>Новина за безплатни таблети се проверява по четири неща: сайт, автор, дата и други източници.</figcaption>
+    </figure>
   </section>
 
   <section aria-labelledby="scan-h">
